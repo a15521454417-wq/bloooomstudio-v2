@@ -1292,9 +1292,10 @@ You must design a visual composition that tells the story through **8 distinct p
             });
 
             const connLayer = new Konva.Layer();
-            const nodeLayer = new Konva.Layer();
-            stage.add(connLayer);
-            stage.add(nodeLayer);
+            const nodeLayer = new Konva.Listening(false); // 节点层不拦截鼠标事件（由React DOM处理）
+
+            stage.add(nodeLayer); // 底层：节点壳（纯视觉，不拦截事件）
+            stage.add(connLayer); // 顶层：连线（视觉辅助）
 
             konvaStageRef.current = stage;
             connLayerRef.current = connLayer;
@@ -14930,14 +14931,11 @@ You must design a visual composition that tells the story through **8 distinct p
                                     backfaceVisibility: 'hidden'
                                 }}>
                                 {/* Konva Canvas Layer */}
-                                <div id="konva-container" className="absolute inset-0 z-10" style={{ pointerEvents: konvaReady ? 'auto' : 'none' }}></div>
+                                <div id="konva-container" className="absolute inset-0 z-10" style={{ pointerEvents: 'none' }}></div>
                                 
-                                {/* React DOM Layer (fallback / overlay) */}
+                                {/* React DOM Layer (主渲染层 - 节点完整内容) */}
                                 <div className="absolute origin-top-left will-change-transform" style={{ 
                                     transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.zoom})`,
-                                    opacity: konvaReady ? 0.15 : 1,
-                                    pointerEvents: konvaReady ? 'none' : 'auto',
-
                                     width: VIRTUAL_CANVAS_WIDTH, 
                                     height: VIRTUAL_CANVAS_HEIGHT,
                                     WebkitFontSmoothing: 'antialiased',
