@@ -1256,6 +1256,7 @@ You must design a visual composition that tells the story through **8 distinct p
             const [connections, setConnections] = useState([]);
             const [view, setView] = useState({ x: 0, y: 0, zoom: 1 });
             const [selectedNodeId, setSelectedNodeId] = useState(null);
+            const [selectedConnection, setSelectedConnection] = useState(null); // Konva连线选中状态
 
         // ============================================================
         // KONVA CANVAS ENGINE - 阶段3: 主画布原型 (Canvas 2D via Konva.js)
