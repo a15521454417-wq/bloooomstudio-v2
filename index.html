@@ -25,9 +25,6 @@
     <!-- 5. Lucide Icons (Defer loading) -->
     <script defer src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- 7. Konva.js (Canvas 2D Engine for Node Canvas) -->
-    <script defer src="https://unpkg.com/konva@9/konva.min.js"></script>
-
     <!-- 6. Marked (Defer loading) -->
     <script defer src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
@@ -772,32 +769,6 @@ You must design a visual composition that tells the story through **8 distinct p
 * **Composition Style:** High-end Editorial / Magazine Layout. Clean, thin white borders.
 * **Visual Unity:** All panels must share the same lighting conditions and color grading logic (Unified Aesthetic).
 * **Task:** Provide the **Final English Image Prompt** that explicitly describes this 8-grid layout, ensuring Panel 8 stands out as an artistic variation.`;
-
-        // ===== 扩图 / 全景 提示词模板（全局统一） =====
-
-        // 通用扩图提示词：不限定品类，适用于所有图片类型
-        const OUTPAINT_PROMPT_TEXT = `保持原图内容完全不变，不修改原图中的主体、物体、人物、产品、文字、logo、材质、颜色、光影和细节。
-仅根据原图的构图、透视、景深、光照和风格，向画框之外自然扩展画面，补齐空白区域。
-扩展内容必须与原图保持一致，延续原图的整体视觉逻辑、空间关系和真实感。
-不要新增与原图无关的主体，不要改变原图的核心内容，不要夸张重绘原图，不要破坏原图的完整性。
-输出应当像是原图自然延展后的完整场景，构图平衡、边缘过渡自然。
-如果原图包含人物、产品、文字、标志、建筑、家具、器物、装饰、食物或任何明确主体，请保持其外观、比例、位置、数量和细节不变，仅扩展画框外的区域。`;
-
-        // 21:9 全景专用提示词
-        const PANORAMA_PROMPT_TEXT = `将这张图片扩展为 21:9 超宽全景图。保持原图主体完全不变，向左右两侧自然延伸画面，补充符合原图风格、光影、透视的环境细节。确保画面连贯、过渡自然、构图平衡。`;
-
-        // ===== 性能优化相关常量 =====
-        
-        // 拖动时是否启用极简渲染模式（降低拖动卡顿）
-        const DRAG_LIGHTWEIGHT_MODE = true;
-        
-        // 节点缩略图最大尺寸（超过此尺寸的图片会生成缓存缩略图）
-        const THUMBNAIL_MAX_WIDTH = 400;
-        const THUMBNAIL_MAX_HEIGHT = 300;
-
-        // 视口外节点不渲染的阈值（像素）
-        const VIEWPORT_CULL_THRESHOLD = 500;
-
         // 已删除的模型ID列表（用于过滤）
         const DELETED_MODEL_IDS = [
             'gemini-image',
@@ -1278,6 +1249,15 @@ You must design a visual composition that tells the story through **8 distinct p
             fontSize: 12, fontColor: '#e4e4e7', titleBg: '#18181b', pad: 8,
         };
 
+        // 节点标签映射
+        const KV_LABELS = {
+            'gen-image': '🎨 AI生图', 'gen-video': '🎬 AI视频',
+            'expand-node': '🖼️ 扩图', 'panorama-node': '🌅 全景',
+            'input-image': '📷 图片输入', 'video-input': '📹 视频输入',
+            'preview': '👁️ 预览', 'storyboard-node': '📋 分镜',
+            'text-input': '📝 文本', 'video-analyze': '🔍 视频分析', 'note': '📌 备注',
+        };
+
         // 初始化 Konva Stage
         useEffect(() => {
             if (typeof Konva === 'undefined') return;
@@ -1292,10 +1272,10 @@ You must design a visual composition that tells the story through **8 distinct p
             });
 
             const connLayer = new Konva.Layer();
-            const nodeLayer = new Konva.Layer({ listening: false }); // 节点层不拦截鼠标事件（由React DOM处理）
+            const nodeLayer = new Konva.Layer({ listening: false });
 
-            stage.add(nodeLayer); // 底层：节点壳（纯视觉，不拦截事件）
-            stage.add(connLayer); // 顶层：连线（视觉辅助）
+            stage.add(nodeLayer);
+            stage.add(connLayer);
 
             konvaStageRef.current = stage;
             connLayerRef.current = connLayer;
@@ -1318,106 +1298,11 @@ You must design a visual composition that tells the story through **8 distinct p
             if (cl) { cl.x(view.x); cl.y(view.y); cl.scaleX(view.zoom); cl.scaleY(view.zoom); cl.batchDraw(); }
         }, [view.x, view.y, view.zoom, konvaReady]);
 
-        // 节点标签映射
-        const KV_LABELS = {
-            'gen-image': '🎨 AI生图', 'gen-video': '🎬 AI视频',
-            'expand-node': '🖼️ 扩图', 'panorama-node': '🌅 全景',
-            'input-image': '📷 图片输入', 'video-input': '📹 视频输入',
-            'preview': '👁️ 预览', 'storyboard-node': '📋 分镜',
-            'text-input': '📝 文本', 'video-analyze': '🔍 视频分析', 'note': '📌 备注',
-        };
-
-        // 同步节点数据到 Konva
-        const syncToKonva = useCallback(() => {
-            const layer = nodeLayerRef.current; if (!layer || !konvaReady) return;
-            const c = KONVA_CFG;
-
-            // 清理已删除节点
-            const curIds = new Set(nodes.map(n => n.id));
-            for (const [id, g] of konvaNodeMap.current.entries()) {
-                if (!curIds.has(id)) { g.destroy(); konvaNodeMap.current.delete(id); }
-            }
-
-            for (const node of nodes) {
-                let group = konvaNodeMap.current.get(node.id);
-                const isSel = selectedNodeId === node.id;
-                const isDark = theme === 'dark';
-
-                if (!group) {
-                    group = new Konva.Group({
-                        x: node.x, y: node.y,
-                        width: node.width, height: node.height,
-                        draggable: true, id: 'kv-' + node.id,
-                    });
-                    const rect = new Konva.Rect({
-                        x: 0, y: 0, width: node.width, height: node.height,
-                        cornerRadius: c.r, fill: c.titleBg,
-                        stroke: isSel ? c.selStroke : c.normStroke, strokeWidth: c.strokeW,
-                        shadowColor: c.shadowColor, shadowBlur: c.shadowBlur, shadowOffsetY: c.shadowOffY, name: 'bg',
-                    });
-                    const tb = new Konva.Rect({ x: 0, y: 0, width: node.width, height: 28, cornerRadius: c.r, fill: isDark ? '#27272a' : '#f4f4f5', name: 'tb' });
-                    const lbl = new Konva.Text({
-                        x: c.pad + 4, y: 7, text: KV_LABELS[node.type] || node.type,
-                        fontSize: c.fontSize, fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
-                        fill: isDark ? c.fontColor : '#27272a', name: 'lbl',
-                    });
-                    const ip = new Konva.Circle({ x: 0, y: node.height / 2, radius: c.portR, fill: c.portFill, stroke: c.portStroke, strokeWidth: 1.5, name: 'ip' });
-                    const op = new Konva.Circle({ x: node.width, y: node.height / 2, radius: c.portR, fill: c.portFill, stroke: c.portStroke, strokeWidth: 1.5, name: 'op' });
-                    group.add(rect, tb, lbl, ip, op);
-
-                    group.on('dragstart', () => setIsInteracting(true));
-                    group.on('dragmove', (e) => { const n = nodes.find(n => n.id === node.id); if (n) { n.x = e.target.x(); n.y = e.target.y(); } });
-                    group.on('dragend', (e) => { setIsInteracting(false); setNodes(prev => prev.map(n => n.id === node.id ? {...n, x: e.target.x(), y: e.target.y()} : n)); });
-                    group.on('click tap', () => { setSelectedNodeId(node.id); });
-                    group.on('mouseenter', () => { document.body.style.cursor = 'move'; const b = group.findOne('.bg'); if (b) { b.stroke(c.hoverStroke); layer.batchDraw(); } });
-                    group.on('mouseleave', () => { document.body.style.cursor = ''; const b = group.findOne('.bg'); if (b) b.stroke(isSel ? c.selStroke : c.normStroke); layer.batchDraw(); });
-
-                    layer.add(group);
-                    konvaNodeMap.current.set(node.id, group);
-                } else {
-                    group.position({x: node.x, y: node.y});
-                    const bg = group.findOne('.bg'); if (bg) bg.stroke(isSel ? c.selStroke : c.normStroke);
-                    const lb = group.findOne('.lbl'); if (lb) lb.fill(isDark ? c.fontColor : '#27272a');
-                }
-            }
-            layer.batchDraw();
-        }, [nodes, selectedNodeId, theme, konvaReady]);
-
-        useEffect(() => { if (konvaReady) syncToKonva(); }, [syncToKonva, konvaReady]);
-
-        // 连线绘制（Konva版）
-        const drawConnKonva = useCallback(() => {
-            const layer = connLayerRef.current; if (!layer || !konvaReady) return;
-            layer.destroyChildren();
-
-            for (const conn of connections) {
-                const fn = nodes.find(n => n.id === conn.from);
-                const tn = nodes.find(n => n.id === conn.to);
-                if (!fn || !tn) continue;
-                const sx = fn.x + fn.width, sy = fn.y + fn.height / 2;
-                const ex = tn.x, ey = tn.y + tn.height / 2;
-                const dx = ex - sx, cp = Math.min(Math.abs(dx) * 0.5, 100);
-                const isSel = selectedConnection?.from === conn.from && selectedConnection?.to === conn.to;
-                const sc = isSel ? '#3b82f6' : (theme === 'dark' ? '#52525b' : '#a1a1aa');
-
-                const line = new Konva.Line({
-                    points: [sx, sy, sx+cp, sy, ex-cp, ey, ex, ey],
-                    stroke: sc, strokeWidth: isSel ? 2.5 : 1.8,
-                    tension: 0.3, lineCap: 'round', lineJoin: 'round',
-                });
-                const arrow = new Konva.Line({
-                    points: [ex, ey, ex-6, ey-3, ex-6, ey+3],
-                    fill: sc, closed: true, stroke: sc, strokeWidth: 1,
-                });
-                layer.add(line, arrow);
-                line.on('click tap', (e) => { e.cancelBubble = true; setSelectedConnection(conn); });
-                line.on('mouseenter', () => { line.stroke('#3b82f6'); line.lineWidth(2.5); layer.batchDraw(); });
-                line.on('mouseleave', () => { if (!isSel) { line.stroke(sc); line.lineWidth(1.8); } layer.batchDraw(); });
-            }
-            layer.batchDraw();
-        }, [connections, nodes, selectedConnection, theme, konvaReady]);
-
-        useEffect(() => { if (konvaReady) drawConnKonva(); }, [drawConnKonva, konvaReady]);
+        // 同步 isInteracting 状态
+        useEffect(() => {
+            const interacting = !!(isPanning || isDragging || dragNodeId || resizingNodeId || isSelecting || connectingSource || connectingTarget);
+            setIsInteracting(interacting);
+        }, [isPanning, isDragging, dragNodeId, resizingNodeId, isSelecting, connectingSource, connectingTarget]);
 
 
 
@@ -1952,7 +1837,7 @@ You must design a visual composition that tells the story through **8 distinct p
                 if (!canvasRef.current) return nodes;
                 
                 const rect = canvasRef.current.getBoundingClientRect();
-                const padding = VIEWPORT_CULL_THRESHOLD || 80; // 视口裁剪阈值（性能优化：减少不必要的节点渲染）
+                const padding = 200; // 额外的渲染区域，避免边缘闪烁
                 
                 // 计算视口在世界坐标系中的范围
                 const viewportLeft = (-view.x - padding) / view.zoom;
@@ -2672,13 +2557,10 @@ You must design a visual composition that tells the story through **8 distinct p
             };
 
             // 优化后的全局鼠标事件监听：解决拖动中断和连线不跟随的问题
-            // 同步 isInteracting 状态（供拖动极简模式和 Konva 使用）
             useEffect(() => {
-                const interacting = !!(isPanning || isDragging || dragNodeId || resizingNodeId || isSelecting || connectingSource || connectingTarget);
-                setIsInteracting(interacting);
-            }, [isPanning, isDragging, dragNodeId, resizingNodeId, isSelecting, connectingSource, connectingTarget]);
+                // 定义需要全局监听的状态
+                const isInteracting = isPanning || isDragging || dragNodeId || resizingNodeId || isSelecting || connectingSource || connectingTarget;
 
-            useEffect(() => {
                 if (!isInteracting) return;
 
                 const handleGlobalMouseMove = (e) => {
@@ -10788,55 +10670,6 @@ You must design a visual composition that tells the story through **8 distinct p
             }, [selectedNodeId, selectedNodeIds, getAdjacentNodes]);
 
             const renderNode = (node) => {
-                // ===== 拖动极简模式：交互时只渲染节点壳，跳过重内容 =====
-                if (DRAG_LIGHTWEIGHT_MODE && isInteracting) {
-                    const isSelected = selectedNodeId === node.id || selectedNodeIds.has(node.id);
-                    return (
-                        <div
-                            key={node.id}
-                            data-node-id={node.id}
-                            className={`absolute rounded-lg border-2 flex items-center justify-center cursor-move select-none ${
-                                isSelected
-                                    ? 'border-blue-500 bg-blue-500/10'
-                                    : theme === 'dark'
-                                        ? 'border-zinc-600 bg-zinc-800/80'
-                                        : 'border-zinc-300 bg-white/90'
-                            }`}
-                            style={{
-                                left: node.x,
-                                top: node.y,
-                                width: node.width || 260,
-                                height: node.height || 180,
-                                imageRendering: 'crisp-edges',
-                                transform: 'translateZ(0)',
-                                willChange: 'transform, left, top',
-                                contain: 'layout style paint size',
-                                pointerEvents: isDragging ? 'none' : 'auto'
-                            }}
-                        >
-                            <span className={`text-[10px] font-medium truncate px-1 ${
-                                theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'
-                            }`}>
-                                {node.type === 'gen-image' ? '🎨 AI 绘图'
-                                  : node.type === 'gen-video' ? '🎬 AI 视频'
-                                  : node.type === 'input-image' ? '📷 图片输入'
-                                  : node.type === 'video-input' ? '📹 视频输入'
-                                  : node.type === 'expand-node' ? '🖼️ 扩图'
-                                  : node.type === 'panorama-node' ? '🌅 全景'
-                                  : node.type === 'preview' ? '👁 预览'
-                                  : node.type === 'text-node' ? '📝 文本'
-                                  : node.type === 'storyboard-node' ? '🎞 分镜'
-                                  : node.type === 'batch-generator' ? '📦 批量'
-                                  : node.type === 'video-analyze' ? '🔍 分析'
-                                  : node.type === 'prompt-optimizer' ? '✨ 优化'
-                                  : node.type === 'image-compare' ? '🔀 对比'
-                                  : node.type}
-                            </span>
-                        </div>
-                    );
-                }
-                
-                // ===== 正常渲染模式（非拖动时） =====
                 const isSelected = selectedNodeId === node.id || selectedNodeIds.has(node.id);
                 const connectedImages = getConnectedInputImages(node.id);
                 const isHoverTarget = hoverTargetId === node.id;
@@ -14930,12 +14763,8 @@ You must design a visual composition that tells the story through **8 distinct p
                                     transform: 'translateZ(0)',
                                     backfaceVisibility: 'hidden'
                                 }}>
-                                {/* Konva Canvas Layer */}
-                                <div id="konva-container" className="absolute inset-0 z-10" style={{ pointerEvents: 'none' }}></div>
-                                
-                                {/* React DOM Layer (主渲染层 - 节点完整内容) */}
                                 <div className="absolute origin-top-left will-change-transform" style={{ 
-                                    transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.zoom})`,
+                                    transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.zoom})`, 
                                     width: VIRTUAL_CANVAS_WIDTH, 
                                     height: VIRTUAL_CANVAS_HEIGHT,
                                     WebkitFontSmoothing: 'antialiased',
