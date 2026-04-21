@@ -1267,6 +1267,7 @@ You must design a visual composition that tells the story through **8 distinct p
         const nodeLayerRef = useRef(null);
         const connLayerRef = useRef(null);
         const konvaNodeMap = useRef(new Map());
+        const [isInteracting, setIsInteracting] = useState(false); // 交互状态(拖动/缩放/平移/框选/连线)
 
         // Konva 节点样式配置
         const KONVA_CFG = {
@@ -2670,10 +2671,13 @@ You must design a visual composition that tells the story through **8 distinct p
             };
 
             // 优化后的全局鼠标事件监听：解决拖动中断和连线不跟随的问题
+            // 同步 isInteracting 状态（供拖动极简模式和 Konva 使用）
             useEffect(() => {
-                // 定义需要全局监听的状态
-                const isInteracting = isPanning || isDragging || dragNodeId || resizingNodeId || isSelecting || connectingSource || connectingTarget;
+                const interacting = !!(isPanning || isDragging || dragNodeId || resizingNodeId || isSelecting || connectingSource || connectingTarget);
+                setIsInteracting(interacting);
+            }, [isPanning, isDragging, dragNodeId, resizingNodeId, isSelecting, connectingSource, connectingTarget]);
 
+            useEffect(() => {
                 if (!isInteracting) return;
 
                 const handleGlobalMouseMove = (e) => {
