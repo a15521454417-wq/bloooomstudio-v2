@@ -1292,7 +1292,7 @@ You must design a visual composition that tells the story through **8 distinct p
             });
 
             const connLayer = new Konva.Layer();
-            const nodeLayer = new Konva.Listening(false); // 节点层不拦截鼠标事件（由React DOM处理）
+            const nodeLayer = new Konva.Layer({ listening: false }); // 节点层不拦截鼠标事件（由React DOM处理）
 
             stage.add(nodeLayer); // 底层：节点壳（纯视觉，不拦截事件）
             stage.add(connLayer); // 顶层：连线（视觉辅助）
